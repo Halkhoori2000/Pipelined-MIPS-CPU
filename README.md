@@ -6,6 +6,18 @@ A working CPU processor built from scratch using hardware description code. It c
 
 Implemented in Verilog as a 32-bit MIPS processor with a classic IF/ID/EX/MEM/WB pipeline. Includes hazard detection with pipeline stalls, EX/MEM/WB forwarding paths for data hazards, early branch resolution in the decode stage, a 2-bit bimodal Branch History Table and Branch Target Buffer for speculative fetch, separate instruction and data caches, and syscall emulation. Designed and simulated in Xilinx Vivado with XSim.
 
+## Use Cases
+- Foundation of modern processor design — the same 5-stage pipeline structure is used in ARM Cortex-M, early commercial MIPS processors, and RISC-V embedded cores
+- FPGA prototyping of custom instruction set architectures for embedded and IoT applications
+- Computer architecture education and research platforms for studying hazard handling and branch prediction strategies
+- Embedded processor cores for automotive, industrial control, and real-time systems
+
+## Challenges
+- **Data hazard detection**: every cycle, source registers of the instruction in Decode must be compared against destination registers of instructions in EX and MEM — missing a single dependency combination causes silent register corruption that produces wrong results with no visible error
+- **Load-use stalls**: a load followed immediately by a dependent instruction requires inserting a one-cycle bubble — the stall must freeze IF/ID, flush ID/EX, and hold the PC simultaneously without losing the instruction already in Fetch
+- **Branch misprediction flush**: when the BHT prediction is wrong, speculatively fetched instructions must be flushed and the correct PC re-fetched in the same cycle — coordinating the flush signal with pipeline register clearing without dropping the resolved branch target
+- **Forwarding path completeness**: every RAW dependency path (EX→EX, MEM→EX, WB→EX, WB→MEM, WB→ID for branch comparisons) must be explicitly handled — an incomplete forwarding network fails intermittently on specific instruction sequences, making bugs extremely hard to trace in simulation
+
 ---
 
 ## Architecture
