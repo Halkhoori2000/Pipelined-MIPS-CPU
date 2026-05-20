@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipelined MIPS CPU — Cycle Simulator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#050810;color:#c8d8f0;font-family:'Courier New',Courier,monospace;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,80,200,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,80,200,.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* ── Header ── */
+#hdr{display:flex;justify-content:space-between;align-items:center;padding:12px 24px;border-bottom:1px solid #0d1830;background:#040710;position:relative;z-index:1}
+#hdr h1{font-size:14px;color:#00aaff;letter-spacing:3px;text-transform:uppercase}
+#hdr p{font-size:10px;color:#2a4070;letter-spacing:1px;margin-top:2px}
+#cycle-blk{text-align:center}
+#cycle-n{font-size:40px;color:#00aaff;line-height:1;text-shadow:0 0 24px rgba(0,160,255,.5)}
+#cycle-lbl{font-size:9px;color:#2a4070;letter-spacing:3px;text-transform:uppercase}
+#total-lbl{font-size:9px;color:#1a3060;margin-top:2px}
+
+/* ── Controls ── */
+#ctrl{display:flex;justify-content:center;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid #0d1830;position:relative;z-index:1}
+.btn{font-family:'Courier New',monospace;font-size:11px;background:#070c1a;border:1px solid #1a3060;color:#5a80c0;padding:5px 14px;cursor:pointer;border-radius:2px;letter-spacing:1px;transition:all .15s}
+.btn:hover{background:#0c1428;border-color:#2a5090;color:#90b8f0}
+.btn:disabled{opacity:.25;cursor:default}
+.btn.run{border-color:#005599;color:#00aaff}
+.btn.run:hover{box-shadow:0 0 10px rgba(0,120,255,.3)}
+#spd-wrap{display:flex;align-items:center;gap:6px;font-size:10px;color:#2a4070;margin-left:8px}
+#spd{width:70px;accent-color:#0066cc}
+
+/* ── Status bar ── */
+#status{padding:5px 24px;font-size:11px;min-height:26px;border-bottom:1px solid #08101e;color:#2a4070;position:relative;z-index:1;display:flex;align-items:center;background:#040810}
+#status .warn{color:#ff6633}
+#status .fwd{color:#00cc66}
+#status .ok{color:#00aaff}
+
+/* ── Main layout ── */
+#main{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;padding:20px 24px 0}
+
+/* ── Pipeline ── */
+#pipe{display:flex;align-items:stretch;width:100%;max-width:920px;gap:0}
+.arrow{display:flex;align-items:center;padding:0 3px;color:#0d2040;font-size:20px;flex-shrink:0}
+.stage{flex:1;border:1px solid #0c1428;background:#040610;padding:10px 8px;min-height:120px;display:flex;flex-direction:column;gap:5px;transition:border-color .2s,box-shadow .2s,background .2s;position:relative;overflow:hidden}
+.stage::before{content:attr(data-name);position:absolute;top:6px;left:8px;font-size:9px;letter-spacing:3px;color:#182840;text-transform:uppercase;transition:color .2s}
+
+/* stage states */
+.stage.act{border-color:#004499;background:#030810;box-shadow:0 0 20px rgba(0,80,220,.15) inset}
+.stage.act::before{color:#0066aa}
+.stage.stall-id{border-color:#993300;background:#060208;box-shadow:0 0 20px rgba(180,50,0,.15) inset}
+.stage.stall-id::before{color:#993300}
+.stage.stall-ex{border-color:#442200;background:#050206}
+.stage.stall-ex::before{color:#442200}
+.stage.bub{border-color:#0c0e1a;background:#030407;opacity:.7}
+.stage.bub::before{color:#121828}
+.stage.empty::before{color:#0c1428}
+
+.s-inst{flex:1;display:flex;flex-direction:column;justify-content:center;margin-top:18px}
+.s-mnem{font-size:12px;font-weight:bold;color:#3a5888;transition:color .2s}
+.stage.act .s-mnem{color:#b0ccf0}
+.stage.stall-id .s-mnem{color:#cc7744}
+.stage.bub .s-mnem{color:#1e2438}
+.s-detail{font-size:9px;color:#243050;margin-top:3px;line-height:1.4;transition:color .2s}
+.stage.act .s-detail{color:#3a5888}
+.s-badge{font-size:9px;color:#ff6622;border:1px solid #882200;padding:1px 5px;display:inline-block;margin-top:5px;letter-spacing:1px}
+.s-fwd{font-size:9px;color:#00994d;border:1px solid #005522;padding:1px 5px;display:inline-block;margin-top:3px}
+
+/* ── Forwarding SVG ── */
+#fwd-svg{width:100%;max-width:920px;height:72px;display:block;margin-top:0}
+
+/* ── Bottom panels ── */
+#panels{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;padding:8px 0 24px;width:100%;max-width:920px}
+.panel{border:1px solid #0c1428;background:#040710;padding:10px}
+.pt{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#1e3058;border-bottom:1px solid #0a1220;padding-bottom:6px;margin-bottom:8px}
+
+/* inst list */
+#ilist{display:flex;flex-direction:column;gap:2px}
+.irow{display:flex;align-items:center;gap:7px;padding:3px 4px;font-size:10px;color:#1e3050;border-radius:1px;transition:background .15s}
+.irow.pip{color:#6888b0;background:#060c1c}
+.irow.dn{color:#111828;text-decoration:line-through}
+.idx{width:14px;color:#1a2a40;text-align:right;flex-shrink:0}
+.iasm{flex:1}
+.tags{display:flex;gap:3px}
+.tag{font-size:8px;padding:0 3px;border:1px solid transparent;border-radius:1px;letter-spacing:1px;line-height:14px}
+.tIF{color:#0077bb;border-color:#003366}
+.tID{color:#7755bb;border-color:#3322aa}
+.tEX{color:#00aa55;border-color:#006633}
+.tMEM{color:#aaaa00;border-color:#666600}
+.tWB{color:#aa4400;border-color:#661100}
+
+/* register file */
+#rgrid{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.rrow{display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:2px 4px;border-radius:1px;transition:background .3s,color .3s}
+.rname{color:#1e3050}
+.rval{color:#3a5888;font-weight:bold}
+.rrow.upd{background:rgba(0,160,60,.14)}
+.rrow.upd .rval{color:#00cc55;text-shadow:0 0 8px rgba(0,200,80,.4)}
+.rrow.zero .rname,.rrow.zero .rval{color:#0e1828}
+
+/* BHT + info */
+#bht-states{display:flex;gap:4px;margin-bottom:6px}
+.bs{width:20px;height:20px;border:1px solid #0e1828;display:flex;align-items:center;justify-content:center;font-size:8px;color:#1e3050;transition:all .3s}
+.bs.cur{border-color:#004499;color:#0077cc;background:#030a14;box-shadow:0 0 8px rgba(0,80,200,.3)}
+.bpred{font-size:10px;color:#3a5888;margin-top:4px}
+.bpred.nt{color:#cc4400}
+.bpred.tk{color:#00aa44}
+.binfo{font-size:9px;color:#182838;line-height:1.7;margin-top:6px;border-top:1px solid #0a1220;padding-top:6px}
+.binfo span{color:#2a4060}
+
+/* progress bar */
+#progress-wrap{width:100%;max-width:920px;margin-bottom:4px}
+#progress-bar{height:2px;background:#0066cc;transition:width .3s;box-shadow:0 0 6px rgba(0,100,255,.5)}
+#progress-track{height:2px;background:#0a1428;width:100%}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div>
+    <h1>Pipelined MIPS CPU</h1>
+    <p>5-Stage Pipeline · Hazard Detection · Forwarding · Branch Prediction</p>
+  </div>
+  <div id="cycle-blk">
+    <div id="cycle-n">1</div>
+    <div id="cycle-lbl">Cycle</div>
+    <div id="total-lbl">of 13</div>
+  </div>
+</div>
+
+<div id="ctrl">
+  <button class="btn" onclick="doReset()">↺ Reset</button>
+  <button class="btn" id="bprev" onclick="doPrev()" disabled>◀ Step</button>
+  <button class="btn run" id="bplay" onclick="doToggle()">▶ Run</button>
+  <button class="btn" id="bnext" onclick="doNext()">Step ▶</button>
+  <div id="spd-wrap">
+    Speed
+    <input type="range" id="spd" min="1" max="5" value="3" oninput="doSpeed()">
+    <span id="spd-v">3</span>
+  </div>
+</div>
+
+<div id="status"><span id="stext" class="ok">Cycle 1 — Pipeline filling</span></div>
+
+<div id="main">
+  <div id="progress-wrap">
+    <div id="progress-track"><div id="progress-bar" style="width:0%"></div></div>
+  </div>
+
+  <!-- Pipeline stages -->
+  <div id="pipe">
+    <div class="stage empty" id="s-IF" data-name="IF"><div class="s-inst" id="c-IF"></div></div>
+    <div class="arrow">→</div>
+    <div class="stage empty" id="s-ID" data-name="ID"><div class="s-inst" id="c-ID"></div></div>
+    <div class="arrow">→</div>
+    <div class="stage empty" id="s-EX" data-name="EX"><div class="s-inst" id="c-EX"></div></div>
+    <div class="arrow">→</div>
+    <div class="stage empty" id="s-MEM" data-name="MEM"><div class="s-inst" id="c-MEM"></div></div>
+    <div class="arrow">→</div>
+    <div class="stage empty" id="s-WB" data-name="WB"><div class="s-inst" id="c-WB"></div></div>
+  </div>
+
+  <!-- Forwarding arrows SVG -->
+  <svg id="fwd-svg" viewBox="0 0 920 72" preserveAspectRatio="none">
+    <defs>
+      <marker id="mUp" markerWidth="7" markerHeight="7" refX="3.5" refY="0" orient="auto">
+        <path d="M0,7 L3.5,0 L7,7 Z" fill="#00cc55"/>
+      </marker>
+      <marker id="mUp2" markerWidth="7" markerHeight="7" refX="3.5" refY="0" orient="auto">
+        <path d="M0,7 L3.5,0 L7,7 Z" fill="#00cc55"/>
+      </marker>
+    </defs>
+    <!-- MEM→EX path (upper) -->
+    <path id="p-mem-ex" d="M0,0" stroke="#00cc55" stroke-width="1.5" fill="none"
+          marker-end="url(#mUp)" stroke-dasharray="5,3" opacity="0"/>
+    <text id="t-mem-ex" font-family="Courier New" font-size="9" fill="#009944" opacity="0" text-anchor="middle"></text>
+    <!-- WB→EX path (lower) -->
+    <path id="p-wb-ex" d="M0,0" stroke="#00cc55" stroke-width="1.5" fill="none"
+          marker-end="url(#mUp2)" stroke-dasharray="5,3" opacity="0"/>
+    <text id="t-wb-ex" font-family="Courier New" font-size="9" fill="#009944" opacity="0" text-anchor="middle"></text>
+  </svg>
+
+  <!-- Bottom panels -->
+  <div id="panels">
+    <div class="panel">
+      <div class="pt">Program</div>
+      <div id="ilist"></div>
+    </div>
+    <div class="panel">
+      <div class="pt">Register File</div>
+      <div id="rgrid"></div>
+    </div>
+    <div class="panel">
+      <div class="pt">Branch Predictor (BHT)</div>
+      <div style="font-size:9px;color:#1e3050;margin-bottom:4px">BEQ $t0, $t1</div>
+      <div id="bht-states">
+        <div class="bs" id="b0">00</div>
+        <div class="bs" id="b1">01</div>
+        <div class="bs" id="b2">10</div>
+        <div class="bs" id="b3">11</div>
+      </div>
+      <div class="bpred" id="bpred">— Weakly NT</div>
+      <div style="font-size:8px;color:#152230;line-height:1.7;margin-top:4px">
+        00 Strongly NT | 01 Weakly NT<br>10 Weakly T &nbsp; | 11 Strongly T
+      </div>
+      <div class="binfo">
+        <span>ISA</span> MIPS-32<br>
+        <span>Tool</span> Vivado / XSim<br>
+        <span>Stalls</span> <span id="inf-s">0</span> cycle(s)<br>
+        <span>Fwds</span> &nbsp;<span id="inf-f">0</span> path(s)
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// Program
+// ─────────────────────────────────────────────────────────────
+const P = [
+  {s:'ADDI $t0,$zero,5', d:'→ $t0 = 0 + 5 = 5',          dst:8 },
+  {s:'ADDI $t1,$zero,3', d:'→ $t1 = 0 + 3 = 3',          dst:9 },
+  {s:'ADD  $t2,$t0,$t1', d:'→ $t2 = $t0 + $t1 = 8',      dst:10},
+  {s:'LW   $t3,0($zero)',d:'→ $t3 = MEM[0] = 7',          dst:11},
+  {s:'ADD  $t4,$t3,$t1', d:'→ $t4 = $t3 + $t1 = 10',     dst:12},
+  {s:'BEQ  $t0,$t1,skip',d:'5 ≠ 3  →  NOT TAKEN',        dst:-1},
+  {s:'ADD  $t5,$t2,$t0', d:'→ $t5 = $t2 + $t0 = 13',     dst:13},
+  {s:'ADDI $t6,$t5,1',   d:'→ $t6 = $t5 + 1  = 14',      dst:14},
+];
+
+// ─────────────────────────────────────────────────────────────
+// Pre-computed cycle trace
+// IF/ID/EX/MEM/WB: program index | null (empty) | 'B' (bubble)
+// fwd: [] of 'MEM→EX($t?)' or 'WB→EX($t?)'
+// ─────────────────────────────────────────────────────────────
+const T = [
+  {IF:0,   ID:null,EX:null,MEM:null,WB:null, stall:false,fwd:[],                             writes:{},     note:'Pipeline filling — first instruction in Fetch'},
+  {IF:1,   ID:0,  EX:null,MEM:null,WB:null, stall:false,fwd:[],                             writes:{},     note:'Two instructions in flight'},
+  {IF:2,   ID:1,  EX:0,   MEM:null,WB:null, stall:false,fwd:[],                             writes:{},     note:'ADDI $t0 in Execute — simple case, no dependencies'},
+  {IF:3,   ID:2,  EX:1,   MEM:0,  WB:null, stall:false,fwd:[],                             writes:{},     note:'Pipeline filling — 4 of 5 stages active'},
+  {IF:4,   ID:3,  EX:2,   MEM:1,  WB:0,   stall:false,fwd:['WB→EX($t0)','MEM→EX($t1)'],  writes:{8:5},  note:'EX forwarding active — $t0 from WB, $t1 from MEM → ADD $t2 = 5+3 = 8'},
+  {IF:'↺', ID:4,  EX:3,   MEM:2,  WB:1,   stall:true, fwd:[],                             writes:{9:3},  note:'⚠ Load-use hazard — LW in EX, ADD $t4 in ID reads $t3 → stall inserted'},
+  {IF:5,   ID:4,  EX:'B', MEM:3,  WB:2,   stall:false,fwd:[],                             writes:{10:8}, note:'Stall bubble in EX — inst4 held in ID, LW $t3 completing in MEM'},
+  {IF:6,   ID:5,  EX:4,   MEM:'B',WB:3,   stall:false,fwd:['WB→EX($t3)'],                writes:{11:7}, note:'WB→EX forwarding — $t3=7 from LW → ADD $t4=7+3=10 | BEQ resolved: NOT TAKEN'},
+  {IF:7,   ID:6,  EX:5,   MEM:4, WB:'B',  stall:false,fwd:[],                             writes:{},     note:'BEQ passes through — branch not taken, no pipeline flush needed'},
+  {IF:null,ID:7,  EX:6,   MEM:5, WB:4,   stall:false,fwd:[],                             writes:{12:10},note:'$t4 = 10 written to register file'},
+  {IF:null,ID:null,EX:7,  MEM:6, WB:5,   stall:false,fwd:['MEM→EX($t5)'],               writes:{},     note:'MEM→EX forwarding — $t5=13 from ADD in MEM → ADDI $t6 = 13+1 = 14'},
+  {IF:null,ID:null,EX:null,MEM:7,WB:6,   stall:false,fwd:[],                             writes:{13:13},note:'$t5 = 13 written to register file — pipeline draining'},
+  {IF:null,ID:null,EX:null,MEM:null,WB:7,stall:false,fwd:[],                             writes:{14:14},note:'$t6 = 14 written — all 8 instructions complete'},
+];
+
+const REGS = [
+  {n:0,  nm:'$zero',fixed:true},
+  {n:8,  nm:'$t0'},
+  {n:9,  nm:'$t1'},
+  {n:10, nm:'$t2'},
+  {n:11, nm:'$t3'},
+  {n:12, nm:'$t4'},
+  {n:13, nm:'$t5'},
+  {n:14, nm:'$t6'},
+];
+
+// ─────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────
+let ci = 0; // cycle index
+let regs = {};
+let timer = null;
+const SPEEDS = [900, 620, 400, 220, 80];
+let spd = 2; // index
+
+// ─────────────────────────────────────────────────────────────
+// Rendering
+// ─────────────────────────────────────────────────────────────
+function instLabel(key) {
+  if (key === null || key === undefined) return '';
+  if (key === 'B' || key === '↺') return null; // bubble
+  return P[key];
+}
+
+function renderStage(name, key, stall) {
+  const box = document.getElementById('s-'+name);
+  const con = document.getElementById('c-'+name);
+  box.className = 'stage';
+  con.innerHTML = '';
+
+  if (key === null || key === undefined) {
+    box.classList.add('empty');
+    con.innerHTML = '<div class="s-mnem" style="color:#0a1428">—</div>';
+    return;
+  }
+  if (key === 'B' || key === '↺') {
+    box.classList.add('bub');
+    con.innerHTML = '<div class="s-mnem">◆ NOP</div><div class="s-detail">bubble</div>';
+    return;
+  }
+  const p = P[key];
+  if (stall && name === 'ID') {
+    box.classList.add('stall-id');
+    con.innerHTML = `<div class="s-mnem">${p.s}</div><div class="s-detail">${p.d}</div><div class="s-badge">⚠ STALL</div>`;
+  } else if (stall && name === 'EX') {
+    box.classList.add('stall-ex');
+    con.innerHTML = `<div class="s-mnem">${p.s}</div><div class="s-detail">${p.d}</div><div class="s-badge">HAZARD SRC</div>`;
+  } else {
+    box.classList.add('act');
+    con.innerHTML = `<div class="s-mnem">${p.s}</div><div class="s-detail">${p.d}</div>`;
+  }
+  // forwarding badge on EX stage
+  const t = T[ci];
+  if (name === 'EX' && t.fwd && t.fwd.length && !stall && key !== 'B') {
+    t.fwd.forEach(f => {
+      con.innerHTML += `<div class="s-fwd">← ${f}</div>`;
+    });
+  }
+}
+
+function renderFwd(fwdList) {
+  // Stage center X values (in 920-wide SVG space)
+  // 5 stages flex:1, 4 arrows ~20px each → stage width ≈ (920-80)/5 = 168
+  // centers: 84, 84+188=272, 84+376=460, 84+564=648, 84+752=836
+  const cx = {IF:84, ID:272, EX:460, MEM:648, WB:836};
+
+  const hasMEX = fwdList.includes('MEM→EX($t0)') || fwdList.includes('MEM→EX($t1)') ||
+                 fwdList.includes('MEM→EX($t3)') || fwdList.includes('MEM→EX($t5)') ||
+                 fwdList.some(f => f.startsWith('MEM→EX'));
+  const hasWEX = fwdList.some(f => f.startsWith('WB→EX'));
+
+  const pME = document.getElementById('p-mem-ex');
+  const tME = document.getElementById('t-mem-ex');
+  const pWE = document.getElementById('p-wb-ex');
+  const tWE = document.getElementById('t-wb-ex');
+
+  if (hasMEX) {
+    const x1=cx.MEM, x2=cx.EX, y=26;
+    pME.setAttribute('d', `M${x1},2 L${x1},${y} L${x2},${y} L${x2},2`);
+    pME.setAttribute('opacity','1');
+    tME.setAttribute('x', (x1+x2)/2);
+    tME.setAttribute('y', y+12);
+    tME.setAttribute('opacity','1');
+    tME.textContent = fwdList.find(f=>f.startsWith('MEM→EX')) || 'MEM→EX';
+  } else {
+    pME.setAttribute('opacity','0');
+    tME.setAttribute('opacity','0');
+  }
+
+  if (hasWEX) {
+    const x1=cx.WB, x2=cx.EX;
+    const y = hasMEX ? 50 : 26;
+    pWE.setAttribute('d', `M${x1},2 L${x1},${y} L${x2},${y} L${x2},2`);
+    pWE.setAttribute('opacity','1');
+    tWE.setAttribute('x', (x1+x2)/2);
+    tWE.setAttribute('y', y+12);
+    tWE.setAttribute('opacity','1');
+    tWE.textContent = fwdList.find(f=>f.startsWith('WB→EX')) || 'WB→EX';
+  } else {
+    pWE.setAttribute('opacity','0');
+    tWE.setAttribute('opacity','0');
+  }
+}
+
+function renderIList(t) {
+  const stageOf = {};
+  ['IF','ID','EX','MEM','WB'].forEach(s => {
+    const v = t[s];
+    if (typeof v === 'number') stageOf[v] = (stageOf[v]||[]).concat(s);
+  });
+  const done = new Set();
+  for (let i=0;i<ci;i++) {
+    if (typeof T[i].WB === 'number') done.add(T[i].WB);
+  }
+  let h='';
+  P.forEach((p,i) => {
+    const inP = stageOf[i];
+    const isDone = done.has(i) && !inP;
+    let tags='';
+    if (inP) inP.forEach(s => {tags += `<span class="tag t${s}">${s}</span>`;});
+    h+=`<div class="irow ${isDone?'dn':inP?'pip':''}">
+      <span class="idx">${i}</span>
+      <span class="iasm">${p.s}</span>
+      <span class="tags">${tags}</span>
+    </div>`;
+  });
+  document.getElementById('ilist').innerHTML = h;
+}
+
+function renderRegs(writes) {
+  let h='';
+  REGS.forEach(r => {
+    const v = r.fixed ? 0 : (regs[r.n]||0);
+    const upd = writes && writes[r.n] !== undefined;
+    h+=`<div class="rrow${r.fixed?' zero':upd?' upd':''}">
+      <span class="rname">${r.nm}</span>
+      <span class="rval">${v}</span>
+    </div>`;
+  });
+  document.getElementById('rgrid').innerHTML = h;
+}
+
+function renderBHT(c) {
+  // Starts at state 1 (Weakly NT). After BEQ executes in EX at cycle 8, not taken → goes to 0.
+  const state = c >= 9 ? 0 : 1;
+  const labels = ['Strongly NT','Weakly NT','Weakly T','Strongly T'];
+  [0,1,2,3].forEach(i => {
+    const el = document.getElementById('b'+i);
+    el.className = 'bs' + (i===state?' cur':'');
+  });
+  const pred = document.getElementById('bpred');
+  pred.className = 'bpred ' + (state<=1?'nt':'tk');
+  pred.textContent = labels[state];
+}
+
+function render() {
+  const t = T[ci];
+
+  // Apply writes
+  if (t.writes) Object.entries(t.writes).forEach(([k,v]) => {regs[parseInt(k)]=v;});
+
+  // Cycle counter
+  document.getElementById('cycle-n').textContent = t.IF !== undefined ? ci+1 : ci+1;
+  document.getElementById('cycle-n').textContent = ci+1;
+
+  // Progress bar
+  document.getElementById('progress-bar').style.width = ((ci/(T.length-1))*100)+'%';
+
+  // Stages
+  ['IF','ID','EX','MEM','WB'].forEach(s => renderStage(s, t[s], t.stall));
+
+  // Forwarding arrows
+  renderFwd(t.fwd || []);
+
+  // Instruction list
+  renderIList(t);
+
+  // Register file
+  renderRegs(t.writes);
+
+  // BHT
+  renderBHT(ci+1);
+
+  // Status
+  const sc = t.stall ? 'warn' : (t.fwd&&t.fwd.length) ? 'fwd' : 'ok';
+  document.getElementById('stext').className = sc;
+  document.getElementById('stext').textContent = `Cycle ${ci+1} — ${t.note}`;
+
+  // Counters
+  const stalls = T.slice(0,ci+1).filter(x=>x.stall).length;
+  const fwds = T.slice(0,ci+1).reduce((a,x)=>a+(x.fwd?x.fwd.length:0),0);
+  document.getElementById('inf-s').textContent = stalls;
+  document.getElementById('inf-f').textContent = fwds;
+
+  // Buttons
+  document.getElementById('bprev').disabled = ci===0;
+  document.getElementById('bnext').disabled = ci===T.length-1;
+  if (ci===T.length-1 && timer) doPause();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Controls
+// ─────────────────────────────────────────────────────────────
+function doNext() {if (ci<T.length-1){ci++;render();}}
+function doPrev() {
+  if (ci>0) {
+    ci--;
+    regs={};
+    for(let i=0;i<=ci;i++) if(T[i].writes) Object.entries(T[i].writes).forEach(([k,v])=>{regs[parseInt(k)]=v;});
+    render();
+  }
+}
+function doReset() {
+  doPause(); ci=0; regs={}; render();
+}
+function doToggle() {
+  if (timer) doPause(); else doPlay();
+}
+function doPlay() {
+  document.getElementById('bplay').textContent='⏸ Pause';
+  timer=setInterval(()=>{if(ci<T.length-1) doNext(); else doPause();}, SPEEDS[spd]);
+}
+function doPause() {
+  document.getElementById('bplay').textContent='▶ Run';
+  clearInterval(timer); timer=null;
+}
+function doSpeed() {
+  spd = parseInt(document.getElementById('spd').value)-1;
+  document.getElementById('spd-v').textContent = spd+1;
+  if(timer){doPause();doPlay();}
+}
+
+render();
+</script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 # 5-Stage Pipelined MIPS CPU — Verilog
 
+**[▶ Live Pipeline Simulator](https://halkhoori2000.github.io/Pipelined-MIPS-CPU/)** — Interactive cycle-by-cycle browser simulation with forwarding visualization, stall detection, and BHT state tracking.
+
 A fully pipelined 32-bit MIPS processor implemented in Verilog, designed and simulated in Xilinx Vivado (CMPEN 331 — Computer Organization and Design, Penn State, Fall 2021).
 
 The processor executes the MIPS instruction set through a classic 5-stage pipeline with hazard handling, dual forwarding paths, and speculative branch execution using a 2-bit bimodal BHT and BTB.
