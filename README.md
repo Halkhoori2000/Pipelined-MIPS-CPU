@@ -2,9 +2,9 @@
 
 **[▶ Live Pipeline Simulator](https://halkhoori2000.github.io/Pipelined-MIPS-CPU/)** — Interactive cycle-by-cycle browser simulation with forwarding visualization, stall detection, and BHT state tracking.
 
-A fully pipelined 32-bit MIPS processor implemented in Verilog, designed and simulated in Xilinx Vivado (CMPEN 331 — Computer Organization and Design, Penn State, Fall 2021).
+A working CPU processor built from scratch using hardware description code. It can execute real programs — arithmetic, memory operations, branches, and jumps — by processing multiple instructions simultaneously through a 5-stage assembly line. It also predicts which way a program will branch before it knows for sure, avoiding wasted cycles.
 
-The processor executes the MIPS instruction set through a classic 5-stage pipeline with hazard handling, dual forwarding paths, and speculative branch execution using a 2-bit bimodal BHT and BTB.
+Implemented in Verilog as a 32-bit MIPS processor with a classic IF/ID/EX/MEM/WB pipeline. Includes hazard detection with pipeline stalls, EX/MEM/WB forwarding paths for data hazards, early branch resolution in the decode stage, a 2-bit bimodal Branch History Table and Branch Target Buffer for speculative fetch, separate instruction and data caches, and syscall emulation. Designed and simulated in Xilinx Vivado with XSim.
 
 ---
 
