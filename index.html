@@ -137,6 +137,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   <button class="btn" id="bprev" onclick="doPrev()" disabled>◀ Step</button>
   <button class="btn run" id="bplay" onclick="doToggle()">▶ Run</button>
   <button class="btn" id="bnext" onclick="doNext()">Step ▶</button>
+  <button class="btn" id="bview" onclick="toggleView()" style="display:none">▦ Classic 2D</button>
   <div id="spd-wrap">
     Speed
     <input type="range" id="spd" min="1" max="5" value="3" oninput="doSpeed()">
@@ -145,6 +146,27 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 </div>
 
 <div id="status"><span id="stext" class="ok">Cycle 1 — Pipeline filling</span></div>
+
+<style>
+#view3d{display:none;position:relative;width:min(980px,96vw);height:560px;margin:14px auto 8px;
+  border:1px solid #0a2a4a;border-radius:10px;overflow:hidden;background:#040a14}
+#view3d canvas{width:100%;height:100%;display:block}
+#hud3d{position:absolute;top:10px;left:12px;font-family:'Courier New',monospace;font-size:11px;
+  color:#9fd8ff;line-height:1.8;pointer-events:none;text-shadow:0 0 6px #003050}
+#hud3d b{color:#00e5ff;font-size:14px}
+#hud3d .h-warn{color:#ff6a6a}
+#hud3d .h-fwd{color:#5dffa0}
+#note3d{position:absolute;bottom:10px;left:12px;right:130px;font-family:'Courier New',monospace;
+  font-size:10.5px;color:#7fb6e0;pointer-events:none;text-shadow:0 0 6px #002540}
+#hint3d{position:absolute;bottom:10px;right:12px;font-family:'Courier New',monospace;font-size:9.5px;
+  color:#1e4a6e;pointer-events:none}
+</style>
+<div id="view3d">
+  <canvas id="c3d"></canvas>
+  <div id="hud3d"></div>
+  <div id="note3d"></div>
+  <div id="hint3d">drag to orbit · scroll to zoom</div>
+</div>
 
 <div id="main">
   <div id="progress-wrap">
@@ -491,6 +513,247 @@ function doSpeed() {
 }
 
 render();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═════════════════════════════════════════════════════════════
+// 3D Die View — neon schematic (three.js)
+// Renders the SAME precomputed trace T as the 2D simulator.
+// Falls back silently to the 2D view if WebGL is unavailable.
+// ═════════════════════════════════════════════════════════════
+(function(){
+if (typeof THREE === 'undefined') return;
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({canvas: document.getElementById('c3d'), antialias: true});
+} catch(e) { return; }
+
+const wrap = document.getElementById('view3d');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x040a14);
+scene.fog = new THREE.Fog(0x040a14, 32, 80);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+
+// ── orbit (custom — drag to rotate, wheel to zoom)
+let theta = 0.45, phi = 0.30, dist = 30, userMoved = false, drag = null;
+const target = new THREE.Vector3(0, -0.6, 0);
+function applyCam(){
+  camera.position.set(
+    target.x + dist*Math.cos(phi)*Math.sin(theta),
+    target.y + dist*Math.sin(phi),
+    target.z + dist*Math.cos(phi)*Math.cos(theta));
+  camera.lookAt(target);
+}
+wrap.addEventListener('pointerdown', e => {drag = {x:e.clientX, y:e.clientY}; userMoved = true;});
+window.addEventListener('pointermove', e => {
+  if (!drag) return;
+  theta -= (e.clientX - drag.x) * 0.005;
+  phi = Math.min(1.25, Math.max(0.08, phi + (e.clientY - drag.y) * 0.004));
+  drag = {x:e.clientX, y:e.clientY};
+});
+window.addEventListener('pointerup', () => drag = null);
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  dist = Math.min(55, Math.max(14, dist + e.deltaY * 0.02));
+  userMoved = true;
+}, {passive: false});
+
+// ── builders
+function neonBox(w, h, d, edge, face = 0x06121f, faceOp = 0.78){
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(w, h, d);
+  g.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color: face, transparent: true, opacity: faceOp})));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color: edge})));
+  return g;
+}
+function label(txt, color = '#9fd8ff', big = false){
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+  const x = c.getContext('2d');
+  x.font = (big ? 'bold 56px' : 'bold 40px') + ' Courier New';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.shadowColor = color; x.shadowBlur = 18; x.fillStyle = color;
+  x.fillText(txt, 256, 64);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false}));
+  sp.scale.set(big ? 5.4 : 4.2, big ? 1.35 : 1.05, 1);
+  return sp;
+}
+function vline(x1, y1, x2, y2, color){
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x2, y2, 0)]);
+  scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({color, transparent: true, opacity: 0.5})));
+}
+
+// ── static architecture (every module below exists in src/)
+const grid = new THREE.GridHelper(70, 35, 0x0a2a4a, 0x07182e);
+grid.position.y = -5.2; scene.add(grid);
+
+const SX = {IF: -12, ID: -6, EX: 0, MEM: 6, WB: 12};
+const STAGE_NAMES = ['IF', 'ID', 'EX', 'MEM', 'WB'];
+const stageBlocks = {};
+STAGE_NAMES.forEach(n => {
+  const b = neonBox(4.4, 2.4, 3.2, 0x00e5ff);
+  b.position.set(SX[n], 0, 0);
+  const l = label(n, '#00e5ff', true); l.position.set(0, 2.0, 0); b.add(l);
+  scene.add(b); stageBlocks[n] = b;
+});
+[['IF/ID', -9], ['ID/EX', -3], ['EX/MEM', 3], ['MEM/WB', 9]].forEach(([n, x]) => {
+  const s = neonBox(0.5, 3.0, 3.6, 0x2a6aa0, 0x081626, 0.9);
+  s.position.set(x, 0, 0);
+  const l = label(n, '#2a8ac0'); l.scale.set(2.4, 0.6, 1); l.position.set(0, 2.1, 0); s.add(l);
+  scene.add(s);
+});
+const hazard = neonBox(3.4, 1.2, 2.0, 0xb14dff);
+hazard.position.set(-3, 4.4, 0);
+const hzl = label('HAZARD UNIT', '#c07aff'); hzl.scale.set(3.6, 0.9, 1); hzl.position.set(0, 1.1, 0); hazard.add(hzl);
+scene.add(hazard);
+const beam = new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-3.8, 3.8, 0), new THREE.Vector3(-6, 1.4, 0)]),
+  new THREE.LineBasicMaterial({color: 0xff5566, transparent: true, opacity: 0}));
+scene.add(beam);
+const bht = neonBox(3.2, 1.2, 2.0, 0xffc14d);
+bht.position.set(-12, 4.4, 0);
+const bl = label('BHT · BTB', '#ffd27a'); bl.scale.set(3.2, 0.8, 1); bl.position.set(0, 1.1, 0); bht.add(bl);
+scene.add(bht);
+let bhtState = null, lastBht = '';
+function setBht(txt){
+  if (bhtState) scene.remove(bhtState);
+  bhtState = label(txt, '#ffd27a'); bhtState.scale.set(5.2, 0.8, 1);
+  bhtState.position.set(-12, 3.3, 0); scene.add(bhtState);
+}
+const ic = neonBox(3.6, 1.1, 2.6, 0x39d7a8); ic.position.set(-12, -2.5, 0); scene.add(ic);
+const icl = label('I$ direct-mapped', '#39d7a8'); icl.scale.set(3.9, 0.7, 1); icl.position.set(-12, -3.5, 0); scene.add(icl);
+const dc = neonBox(3.6, 1.1, 2.6, 0x39d7a8); dc.position.set(6, -2.5, 0); scene.add(dc);
+const dcl = label('D$ 2-way · dirty bits', '#39d7a8'); dcl.scale.set(4.6, 0.7, 1); dcl.position.set(6, -3.5, 0); scene.add(dcl);
+const mem = neonBox(33, 0.6, 6.5, 0x1f6e9c, 0x05101d, 0.92); mem.position.set(0, -4.6, 0); scene.add(mem);
+const meml = label('MAIN MEMORY', '#2a8ac0'); meml.scale.set(4.4, 0.8, 1); meml.position.set(13, -3.9, 0); scene.add(meml);
+vline(-12, -1.2, -12, -1.95, 0x39d7a8); vline(6, -1.2, 6, -1.95, 0x39d7a8);
+vline(-12, -3.05, -12, -4.3, 0x1f6e9c); vline(6, -3.05, 6, -4.3, 0x1f6e9c);
+
+// ── dynamic: instruction packets (one per program instruction)
+const COLORS = ['#00e5ff', '#ff3df0', '#ffe14d', '#7cff4d', '#ff8a3d', '#4d9bff', '#ff4d6d', '#9d4dff'];
+const packets = P.map((p, i) => {
+  const toks = p.s.split(/\s+/);
+  const short = toks[0] + ' ' + (toks[1] ? toks[1].split(',')[0] : '');
+  const grp = neonBox(2.6, 0.7, 1.7, new THREE.Color(COLORS[i]).getHex(), 0x0a1424, 0.92);
+  const lb = label(short, COLORS[i]); lb.scale.set(2.6, 0.65, 1); lb.position.set(0, 0.85, 0); grp.add(lb);
+  grp.position.set(-19, 0.15, 0); grp.visible = false;
+  grp.userData = {tx: -19};
+  scene.add(grp);
+  return grp;
+});
+const bubbles = [0, 1].map(() => {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 14),
+    new THREE.MeshBasicMaterial({color: 0x9aa7b8, transparent: true, opacity: 0.45}));
+  m.visible = false; scene.add(m); return m;
+});
+function mkArc(x1, x2, h, color){
+  const curve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(x1, 1.4, 0), new THREE.Vector3((x1+x2)/2, 1.4+h, 0), new THREE.Vector3(x2, 1.4, 0));
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.06, 8),
+    new THREE.MeshBasicMaterial({color, transparent: true, opacity: 0}));
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10),
+    new THREE.MeshBasicMaterial({color, transparent: true, opacity: 0}));
+  scene.add(tube); scene.add(pulse);
+  return {curve, tube, pulse, on: false, t: 0};
+}
+const arcME = mkArc(SX.MEM, SX.EX, 2.2, 0x5dffa0);
+const arcWE = mkArc(SX.WB, SX.EX, 3.6, 0x5dffa0);
+const wbPulse = label('✦ REG WRITE', '#ffd700');
+wbPulse.scale.set(3.2, 0.7, 1); wbPulse.material.opacity = 0; wbPulse.position.set(12, 2.4, 0);
+scene.add(wbPulse);
+
+// ── state sync: pull everything from T[ci] (the real trace)
+window.sync3D = function(){
+  const t = T[ci];
+  const done = new Set();
+  for (let j = 0; j < ci; j++) if (typeof T[j].WB === 'number') done.add(T[j].WB);
+  packets.forEach((pk, k) => {
+    let st = null;
+    STAGE_NAMES.forEach(s => { if (t[s] === k) st = s; });
+    if (st !== null){ pk.visible = true; pk.userData.tx = SX[st]; }
+    else if (done.has(k)){ pk.userData.tx = 19; }
+    else { pk.visible = false; pk.position.x = -19; pk.userData.tx = -19; }
+  });
+  bubbles.forEach(b => b.visible = false);
+  let bi = 0;
+  STAGE_NAMES.forEach(s => {
+    if (t[s] === 'B' || t[s] === '↺'){
+      const b = bubbles[bi++];
+      if (b){ b.visible = true; b.position.set(SX[s], 0.15, 0); }
+    }
+  });
+  beam.material.opacity = t.stall ? 0.95 : 0;
+  stageBlocks.ID.children[1].material.color.setHex(t.stall ? 0xff5566 : 0x00e5ff);
+  hazard.children[1].material.color.setHex(t.stall ? 0xff5566 : 0xb14dff);
+  const fl = t.fwd || [];
+  arcME.on = fl.some(f => f.startsWith('MEM→EX'));
+  arcWE.on = fl.some(f => f.startsWith('WB→EX'));
+  if (t.writes && Object.keys(t.writes).length){
+    wbPulse.material.opacity = 1; wbPulse.position.set(12, 2.4, 0);
+  }
+  const c = ci + 1, stt = c >= 9 ? 0 : 1;
+  const bits = ['00','01','10','11'][stt], lbl = ['Strongly NT','Weakly NT','Weakly T','Strongly T'][stt];
+  const txt = bits + ' · ' + lbl;
+  if (txt !== lastBht){ setBht(txt); lastBht = txt; }
+  const stalls = T.slice(0, ci+1).filter(x => x.stall).length;
+  const fwds = T.slice(0, ci+1).reduce((a, x) => a + (x.fwd ? x.fwd.length : 0), 0);
+  document.getElementById('hud3d').innerHTML =
+    '<b>CYCLE ' + (ci+1) + '</b> / ' + T.length + '<br>' +
+    'stalls <span class="h-warn">' + stalls + '</span> · forwards <span class="h-fwd">' + fwds + '</span>' +
+    (fl.length ? '<br><span class="h-fwd">⚡ ' + fl.join('&ensp;') + '</span>' : '') +
+    (t.stall ? '<br><span class="h-warn">⚠ load-use hazard — bubble inserted</span>' : '');
+  document.getElementById('note3d').textContent = 'Cycle ' + (ci+1) + ' — ' + t.note;
+};
+
+// ── animation loop
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  if (!is3D) return;
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (!userMoved) theta += dt * 0.12;
+  applyCam();
+  packets.forEach(pk => {
+    pk.position.x += (pk.userData.tx - pk.position.x) * Math.min(1, dt * 7);
+    pk.position.y = 0.15 + Math.sin(performance.now() * 0.002 + pk.userData.tx) * 0.05;
+    if (pk.userData.tx === 19 && pk.position.x > 17.5) pk.visible = false;
+  });
+  [arcME, arcWE].forEach(a => {
+    a.tube.material.opacity += ((a.on ? 0.85 : 0) - a.tube.material.opacity) * Math.min(1, dt * 8);
+    if (a.on){
+      a.t = (a.t + dt * 0.9) % 1;
+      a.pulse.position.copy(a.curve.getPoint(a.t));
+      a.pulse.material.opacity = 0.95;
+    } else a.pulse.material.opacity = 0;
+  });
+  if (wbPulse.material.opacity > 0){ wbPulse.material.opacity -= dt * 0.8; wbPulse.position.y += dt * 0.8; }
+  if (T[ci].stall) beam.material.opacity = 0.55 + 0.4 * Math.sin(performance.now() * 0.02);
+  renderer.render(scene, camera);
+}
+
+// ── sizing, view toggle, render hook
+function resize(){
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h, false);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+let is3D = false;
+window.toggleView = function(){ setView(!is3D); };
+function setView(v){
+  is3D = v;
+  document.getElementById('view3d').style.display = v ? 'block' : 'none';
+  document.getElementById('main').style.display = v ? 'none' : '';
+  document.getElementById('bview').textContent = v ? '▦ Classic 2D' : '⬡ 3D Die View';
+  if (v){ resize(); sync3D(); }
+}
+document.getElementById('bview').style.display = 'inline-block';
+const _render2D = render;
+render = function(){ _render2D(); if (is3D) sync3D(); };
+setView(window.innerWidth > 760);   // 3D default on desktop, 2D on small screens
+animate();
+})();
 </script>
 </body>
 </html>

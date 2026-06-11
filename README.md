@@ -1,5 +1,7 @@
 # 5-Stage Pipelined MIPS CPU — Verilog
 
+*CMPEN 331 — Computer Organization and Design · Penn State · Fall 2021*
+
 **[▶ Live Pipeline Simulator](https://halkhoori2000.github.io/Pipelined-MIPS-CPU/)** — Interactive cycle-by-cycle browser simulation with forwarding visualization, stall detection, and BHT state tracking.
 
 A working CPU processor built from scratch using hardware description code. It can execute real programs — arithmetic, memory operations, branches, and jumps — by processing multiple instructions simultaneously through a 5-stage assembly line. It also predicts which way a program will branch before it knows for sure, avoiding wasted cycles.
