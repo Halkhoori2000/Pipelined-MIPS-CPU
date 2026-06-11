@@ -140,4 +140,4 @@ src/
 | Language | Verilog (IEEE 1364) |
 | Tool | Xilinx Vivado / XSim |
 | ISA | MIPS-32 (subset) |
-| Course | CMPEN 331 — Computer Organization and Design, Penn State (Fall 2021) |
+| Course | CMPEN 331 — Computer Organization and Design, The Pennsylvania State University (2021) |
