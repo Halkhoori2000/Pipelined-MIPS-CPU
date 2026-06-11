@@ -1,6 +1,6 @@
 # 5-Stage Pipelined MIPS CPU — Verilog
 
-*CMPEN 331 — Computer Organization and Design · Penn State · 2021*
+*CMPEN 331 — Computer Organization and Design · The Pennsylvania State University · 2021*
 
 **[▶ Live Pipeline Simulator](https://halkhoori2000.github.io/Pipelined-MIPS-CPU/)** — Interactive cycle-by-cycle browser simulation with forwarding visualization, stall detection, and BHT state tracking.
 
